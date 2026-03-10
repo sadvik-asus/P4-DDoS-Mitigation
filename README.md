@@ -1,78 +1,251 @@
-# P4-Based In-Network DDoS Mitigation
+# 🚀 P4-Based In-Network DDoS Mitigation
 
-This project demonstrates a Software-Defined Networking (SDN) data plane approach to network security. It uses a P4 program running on a BMv2 software switch to automatically detect and drop high-rate TCP SYN flood attacks without relying on an external CPU controller for the per-packet logic.
+This project implements an **In-Network DDoS Mitigation system using the P4 language**. By leveraging the programmable **data plane of a BMv2 software switch**, the system detects and drops **high-rate TCP SYN flood attacks at line rate**.
 
-## Requirements
-* Docker
-* Docker Compose
+Unlike traditional **SDN approaches** that forward suspicious traffic to a controller, this solution performs mitigation **directly inside the switch data plane**, enabling:
 
-The environment relies on a Linux container (Ubuntu 20.04) installing the necessary `p4lang` tools, Mininet, and Scapy. This makes it easy to run on Windows via Docker Desktop.
+- ⚡ **Sub-millisecond response times**
+- 🧠 **No controller dependency**
+- 💻 **Zero CPU overhead during attacks**
 
-## Setup and Execution
+---
 
-### 1. Start the Environment
-Use Docker Compose to build and start the container:
+# 💡 Key Features
+
+### 🔹 Data Plane Enforcement
+Packet inspection and dropping occur entirely within the **BMv2 programmable switch**.
+
+### 🔹 Stateless Rate Limiting
+Uses **P4 Meters (Two-Rate Three-Color Marker)** to track TCP SYN packet velocity.
+
+### 🔹 Zero Controller Dependency
+Mitigation logic runs completely inside the switch without requiring **ONOS, Ryu, or any SDN controller**.
+
+### 🔹 Dockerized Environment
+Fully portable setup using:
+
+- **p4c compiler**
+- **Mininet**
+- **Scapy**
+- **BMv2**
+
+---
+
+# 🛠 Prerequisites
+
+Make sure the following tools are installed on your system:
+
+- **Docker**
+- **Docker Compose**
+
+---
+
+# 🚀 Getting Started
+
+## 1️⃣ Provision the Environment
+
+Build and launch the containerized **Ubuntu 20.04 environment** containing the P4 toolchain.
+
 ```bash
 docker-compose up -d --build
-```
-
-Then, attach to the running container's shell:
-```bash
 docker exec -it p4_ddos_env /bin/bash
 ```
 
-*Note: You will run the rest of the commands from inside the container.*
+All subsequent commands should be executed **inside this container**.
 
-### 2. Compile the P4 Program (Optional)
-The Dockerfile compiles the P4 program automatically during the build process. If you make modifications to `p4-src/ddos_mitigation.p4`, recompile it with:
+---
+
+## 2️⃣ Compilation
+
+The P4 program is compiled automatically during the Docker build.
+
+If you modify the file:
+
+```
+p4-src/ddos_mitigation.p4
+```
+
+Recompile using:
+
 ```bash
 p4c-bm2-ss --p4v 16 -o /app/ddos_mitigation.json /app/p4-src/ddos_mitigation.p4
 ```
 
-### 3. Start the Mininet Topology
-Run the Mininet script which will start the BMv2 switch and two hosts (`h1` and `h2`), and will populate the routing tables automatically:
+---
+
+## 3️⃣ Launch Network Topology
+
+Start the **Mininet topology (1 Switch, 2 Hosts)** and load the compiled P4 program into the BMv2 switch.
+
 ```bash
 python3 /app/topology/network.py
 ```
-This will open the `mininet>` prompt.
 
-### 4. Testing Normal Traffic
-At the mininet prompt, let's observe traffic on `h2`:
+You will now enter the **Mininet CLI**:
+
+```
+mininet>
+```
+
+---
+
+# 🧪 Testing the Mitigation
+
+## Scenario A: Normal Traffic (Baseline)
+
+### Step 1: Monitor traffic on Host 2
+
 ```bash
 mininet> h2 tcpdump -i h2-eth0 -n tcp &
 ```
 
-Now, send normal traffic from `h1` to `h2` (10 packets with half-second intervals):
+### Step 2: Send low-rate traffic from Host 1
+
 ```bash
 mininet> h1 python3 /app/scripts/send_normal_traffic.py 10.0.0.2
 ```
-You should see all 10 packets successfully arrive at `h2`.
-Stop the tcpdump with:
-```bash
-mininet> h2 kill %tcpdump
-```
 
-### 5. Testing SYN Flood Mitigation
-The P4 switch is configured with a meter to track SYN packet rates. If a flood occurs, the data plane will mark the excessive packets to be dropped.
+### Result
 
-Run tcpdump on `h2` again:
-```bash
-mininet> h2 tcpdump -i h2-eth0 -n tcp &
-```
+All **10 packets** successfully arrive at **Host 2 (h2)**.
 
-Now, launch a rapid SYN flood from `h1` to `h2` (1000 packets at line rate):
+---
+
+# 🚨 Scenario B: SYN Flood Attack (Mitigation)
+
+Launch a **high-rate TCP SYN flood attack** to trigger the P4 meter.
+
 ```bash
 mininet> h1 python3 /app/scripts/send_syn_flood.py 10.0.0.2
 ```
-You will notice `h2` receives only a handful of the initial packets (until the rate meter turns from GREEN to YELLOW/RED state), and the rest are dropped entirely in the data plane by the P4 switch before they reach the victim host!
 
-Stop the tcpdump with:
+### Observation
+
+The switch detects the rate violation:
+
+- Initial **GREEN packets** are allowed
+- **RED packets** exceed the threshold
+- RED packets are **immediately dropped in the switch**
+
+This prevents the attack traffic from reaching the destination host.
+
+---
+
+### Cleanup
+
+Stop packet monitoring:
+
 ```bash
 mininet> h2 kill %tcpdump
 ```
 
-## How It Works
-1. **Parser**: The `ddos_mitigation.p4` defines standard headers (Ethernet, IPv4, TCP).
-2. **Meter**: An Ingress meter tracks the volume of traffic (specifically TCP SYN packets).
-3. **Logic**: When parsing a packet, if it's a TCP SYN (and not an ACK), it updates the meter corresponding to the target destination IP.
-4. **Action**: If the meter threshold is exceeded, the switch executes the `drop()` action, effectively mitigating volumetric resource enumeration without CPU intervention.
+---
+
+# 🏗 System Architecture
+
+The **P4 pipeline** follows these logical stages:
+
+### 1️⃣ Parser
+Extracts the following headers:
+
+- Ethernet
+- IPv4
+- TCP
+
+### 2️⃣ Ingress Match-Action
+
+Checks if:
+
+```
+TCP.flags = SYN
+AND
+TCP.flags != ACK
+```
+
+If true:
+
+- Apply a **Meter indexed by destination IP**
+
+### 3️⃣ Meter Logic
+
+The meter calculates **packet rate** and assigns a color state.
+
+### 4️⃣ Drop Logic
+
+If the packet is classified as **RED**, the following primitive is executed:
+
+```
+mark_to_drop()
+```
+
+This causes the packet to be dropped immediately.
+
+---
+
+# 📊 Meter Configuration
+
+The mitigation uses a **color-aware implementation**.
+
+| State | Action | Description |
+|------|------|------|
+| Green | NoAction | Traffic allowed |
+| Yellow | NoAction | Optional throttling (currently allowed) |
+| Red | drop() | Packet immediately dropped |
+
+---
+
+# 📂 Project Structure
+
+```
+.
+├── p4-src/
+│   └── ddos_mitigation.p4      # Core P4-16 source code
+│
+├── scripts/
+│   ├── send_normal_traffic.py
+│   └── send_syn_flood.py       # Scapy-based attack generator
+│
+├── topology/
+│   └── network.py              # Mininet topology definition
+│
+├── Dockerfile                  # Container environment
+├── docker-compose.yml          # Container orchestration
+└── README.md
+```
+
+---
+
+# ⚙️ Technologies Used
+
+- **P4-16**
+- **BMv2 Software Switch**
+- **Mininet**
+- **Scapy**
+- **Docker**
+- **Python**
+
+---
+
+# 📌 Future Improvements
+
+Possible extensions of this project include:
+
+- Adaptive thresholds using **machine learning**
+- Multi-switch distributed mitigation
+- Integration with **SDN controllers**
+- Detection of additional attack types such as:
+  - UDP floods
+  - ICMP floods
+  - Amplification attacks
+
+---
+
+# 📜 License
+
+This project is open-source and available under the **MIT License**.
+
+---
+
+# 👨‍💻 Author
+
+Developed as part of a **network security / programmable networks project** demonstrating **data-plane DDoS mitigation using P4**.
