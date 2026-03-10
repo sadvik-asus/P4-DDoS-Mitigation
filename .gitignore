@@ -1,0 +1,13 @@
+# Compiled P4 JSON
+ddos_mitigation.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store

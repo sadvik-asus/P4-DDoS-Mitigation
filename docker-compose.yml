@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  p4-env:
+    build: .
+    container_name: p4_ddos_env
+    privileged: true
+    volumes:
+      - .:/app
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    networks:
+      - mininet-net
+
+networks:
+  mininet-net:
+    driver: bridge
